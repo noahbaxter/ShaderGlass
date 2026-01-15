@@ -35,7 +35,15 @@ $(APP_BUNDLE): $(OBJECTS) $(SHADER_LIB) Info.plist ShaderGlassMac.entitlements
 run: $(APP_BUNDLE)
 	open $(APP_BUNDLE)
 
+# Dev build - no codesigning, preserves Screen Recording permissions
+dev:
+	./dev.sh
+
+# Watch mode - auto-rebuild on file changes
+watch:
+	./watch.sh
+
 clean:
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all run clean
+.PHONY: all run dev watch clean

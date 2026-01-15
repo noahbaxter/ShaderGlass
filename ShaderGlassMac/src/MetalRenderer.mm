@@ -12,6 +12,7 @@ struct Uniforms {
     float textureWidth;
     float textureHeight;
     int shaderType;
+    float time;
 };
 
 @interface MetalRendererImpl : NSObject <MTKViewDelegate>
@@ -33,6 +34,7 @@ struct Uniforms {
         _uniforms.textureWidth = 1920.0;
         _uniforms.textureHeight = 1080.0;
         _uniforms.shaderType = 1; // Default to scanlines
+        _uniforms.time = 0.0;
     }
     return self;
 }
@@ -165,6 +167,9 @@ struct Uniforms {
 
 - (void)drawInMTKView:(MTKView*)view {
     if (!_sourceTexture) return;
+
+    // Update time for animated shaders
+    _uniforms.time += 1.0 / 60.0;
 
     id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
     MTLRenderPassDescriptor* renderPass = view.currentRenderPassDescriptor;

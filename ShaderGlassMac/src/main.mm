@@ -3,15 +3,22 @@
 #import "MetalRenderer.h"
 #import "ScreenCapture.h"
 
+static const int SHADER_COUNT = 13;
+
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, assign) AppWindow* window;
 @property (nonatomic, assign) MetalRenderer* renderer;
 @property (nonatomic, assign) ScreenCapture* capture;
 @property (nonatomic, assign) BOOL captureUnderneath;
 @property (nonatomic, assign) BOOL clickThrough;
+@property (nonatomic, assign) BOOL isFullscreen;
+@property (nonatomic, assign) NSRect savedWindowFrame;
 @property (nonatomic, strong) NSMenuItem* captureUnderneathItem;
 @property (nonatomic, strong) NSMenuItem* clickThroughItem;
+@property (nonatomic, strong) NSMenuItem* fullscreenItem;
 @property (nonatomic, strong) NSArray<NSMenuItem*>* shaderItems;
+@property (nonatomic, strong) id localMonitor;
+@property (nonatomic, strong) id globalMonitor;
 @end
 
 @implementation AppDelegate
@@ -19,6 +26,8 @@
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
     _captureUnderneath = NO;
     _clickThrough = NO;
+    _isFullscreen = NO;
+    _savedWindowFrame = NSZeroRect;
 
     // Create window
     _window = new AppWindow();
@@ -46,6 +55,28 @@
 
     [self startCapture];
     _window->show();
+
+    // Add local key monitor for R key (randomize) and Escape (exit fullscreen)
+    _localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent*(NSEvent* event) {
+        if ([event.charactersIgnoringModifiers isEqualToString:@"r"] && !(event.modifierFlags & NSEventModifierFlagCommand)) {
+            [self randomizeShader:nil];
+            return nil;
+        }
+        // Escape exits fullscreen
+        if (event.keyCode == 53 && self->_isFullscreen) {
+            [self toggleFullScreen:nil];
+            return nil;
+        }
+        return event;
+    }];
+
+    // Global monitor for Cmd+Q to always work
+    _globalMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^(NSEvent* event) {
+        if ([event.charactersIgnoringModifiers isEqualToString:@"q"] &&
+            (event.modifierFlags & NSEventModifierFlagCommand)) {
+            [NSApp terminate:nil];
+        }
+    }];
 }
 
 - (void)startCapture {
@@ -55,12 +86,10 @@
     NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
 
     if (_captureUnderneath) {
-        // Capture just the area under the window
         NSRect frame = nsWindow.frame;
         NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
         CGFloat scale = screen.backingScaleFactor;
 
-        // Convert to screen coordinates (flip Y)
         NSRect screenFrame = screen.frame;
         CGRect captureRect = CGRectMake(
             frame.origin.x - screenFrame.origin.x,
@@ -80,6 +109,12 @@
 }
 
 - (void)applicationWillTerminate:(NSNotification*)notification {
+    if (_localMonitor) {
+        [NSEvent removeMonitor:_localMonitor];
+    }
+    if (_globalMonitor) {
+        [NSEvent removeMonitor:_globalMonitor];
+    }
     if (_capture) {
         _capture->stop();
         delete _capture;
@@ -100,7 +135,45 @@
 
 - (void)toggleFullScreen:(id)sender {
     NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
-    [nsWindow toggleFullScreen:nil];
+
+    if (!_isFullscreen) {
+        // Save current frame
+        _savedWindowFrame = nsWindow.frame;
+
+        // Get screen frame (including menu bar area)
+        NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
+        NSRect screenFrame = screen.frame;
+
+        // Go borderless fullscreen
+        nsWindow.styleMask = NSWindowStyleMaskBorderless;
+        nsWindow.level = NSMainMenuWindowLevel + 1; // Above menu bar
+        [nsWindow setFrame:screenFrame display:YES animate:NO];
+        [nsWindow makeKeyAndOrderFront:nil];
+
+        _isFullscreen = YES;
+        _fullscreenItem.title = @"Exit Full Screen";
+    } else {
+        // Restore window
+        nsWindow.styleMask = NSWindowStyleMaskTitled |
+                             NSWindowStyleMaskClosable |
+                             NSWindowStyleMaskMiniaturizable |
+                             NSWindowStyleMaskResizable;
+        nsWindow.titlebarAppearsTransparent = YES;
+        nsWindow.titleVisibility = NSWindowTitleHidden;
+        nsWindow.level = _clickThrough ? NSScreenSaverWindowLevel : NSFloatingWindowLevel;
+
+        if (!NSIsEmptyRect(_savedWindowFrame)) {
+            [nsWindow setFrame:_savedWindowFrame display:YES animate:NO];
+        }
+
+        _isFullscreen = NO;
+        _fullscreenItem.title = @"Enter Full Screen";
+    }
+
+    // Restart capture if in underneath mode
+    if (_captureUnderneath) {
+        [self startCapture];
+    }
 }
 
 - (void)toggleCaptureUnderneath:(id)sender {
@@ -112,24 +185,23 @@
 - (void)toggleClickThrough:(id)sender {
     _clickThrough = !_clickThrough;
     _clickThroughItem.state = _clickThrough ? NSControlStateValueOn : NSControlStateValueOff;
-
-    NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
-    nsWindow.ignoresMouseEvents = _clickThrough;
-
-    // Change window level when click-through is on
-    if (_clickThrough) {
-        nsWindow.level = NSScreenSaverWindowLevel;
-    } else {
-        nsWindow.level = NSFloatingWindowLevel;
-    }
+    _window->setClickThrough(_clickThrough);
 }
 
 - (void)selectShader:(id)sender {
     NSMenuItem* item = (NSMenuItem*)sender;
     int shaderType = (int)item.tag;
     _renderer->setShaderType(shaderType);
+    [self updateShaderCheckmarks:shaderType];
+}
 
-    // Update checkmarks
+- (void)randomizeShader:(id)sender {
+    int newShader = arc4random_uniform(SHADER_COUNT);
+    _renderer->setShaderType(newShader);
+    [self updateShaderCheckmarks:newShader];
+}
+
+- (void)updateShaderCheckmarks:(int)shaderType {
     for (NSMenuItem* shaderItem in _shaderItems) {
         shaderItem.state = (shaderItem.tag == shaderType) ? NSControlStateValueOn : NSControlStateValueOff;
     }
@@ -182,11 +254,12 @@ int main(int argc, const char* argv[]) {
         [menuBar addItem:viewMenuItem];
         NSMenu* viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
 
-        NSMenuItem* fullscreenItem = [[NSMenuItem alloc] initWithTitle:@"Toggle Full Screen"
+        NSMenuItem* fullscreenItem = [[NSMenuItem alloc] initWithTitle:@"Enter Full Screen"
                                                                 action:@selector(toggleFullScreen:)
                                                          keyEquivalent:@"f"];
         fullscreenItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
         fullscreenItem.target = delegate;
+        delegate.fullscreenItem = fullscreenItem;
         [viewMenu addItem:fullscreenItem];
 
         [viewMenu addItem:[NSMenuItem separatorItem]];
@@ -214,25 +287,50 @@ int main(int argc, const char* argv[]) {
         [menuBar addItem:shaderMenuItem];
         NSMenu* shaderMenu = [[NSMenu alloc] initWithTitle:@"Shader"];
 
-        NSArray* shaderNames = @[@"None (Passthrough)", @"Scanlines", @"CRT", @"LCD", @"VHS"];
+        NSArray* shaderNames = @[
+            @"None (Passthrough)",
+            @"Scanlines",
+            @"CRT",
+            @"LCD",
+            @"VHS",
+            @"Gameboy",
+            @"Phosphor Glow",
+            @"NTSC",
+            @"ASCII",
+            @"Matrix",
+            @"Thermal",
+            @"Pixelate",
+            @"Aperture Grille"
+        ];
         NSMutableArray* shaderItems = [NSMutableArray array];
 
         for (int i = 0; i < (int)shaderNames.count; i++) {
-            NSString* keyEquiv = (i < 5) ? [NSString stringWithFormat:@"%d", i] : @"";
+            NSString* keyEquiv = @"";
+            if (i < 10) keyEquiv = [NSString stringWithFormat:@"%d", i];
+
             NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:shaderNames[i]
                                                           action:@selector(selectShader:)
                                                    keyEquivalent:keyEquiv];
             item.tag = i;
             item.target = delegate;
-            item.state = (i == 1) ? NSControlStateValueOn : NSControlStateValueOff; // Scanlines default
+            item.state = (i == 1) ? NSControlStateValueOn : NSControlStateValueOff;
             [shaderMenu addItem:item];
             [shaderItems addObject:item];
         }
 
+        [shaderMenu addItem:[NSMenuItem separatorItem]];
+
+        NSMenuItem* randomItem = [[NSMenuItem alloc] initWithTitle:@"Randomize"
+                                                            action:@selector(randomizeShader:)
+                                                     keyEquivalent:@"r"];
+        randomItem.keyEquivalentModifierMask = 0; // No modifier, just R
+        randomItem.target = delegate;
+        [shaderMenu addItem:randomItem];
+
         delegate.shaderItems = shaderItems;
         [shaderMenuItem setSubmenu:shaderMenu];
 
-        // Window menu (for standard window controls)
+        // Window menu
         NSMenuItem* windowMenuItem = [[NSMenuItem alloc] init];
         [menuBar addItem:windowMenuItem];
         NSMenu* windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];

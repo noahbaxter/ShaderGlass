@@ -11,6 +11,7 @@ public:
 
     void* getNSWindow();
     void* getMTKView();
+    void setClickThrough(bool enabled);
 
 private:
     void* nsWindow;

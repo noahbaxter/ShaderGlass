@@ -17,6 +17,25 @@
 
 @end
 
+@interface ClickThroughMTKView : MTKView
+@property (nonatomic, assign) BOOL clickThrough;
+@end
+
+@implementation ClickThroughMTKView
+
+- (NSView*)hitTest:(NSPoint)point {
+    if (_clickThrough) {
+        return nil;  // Pass clicks through
+    }
+    return [super hitTest:point];
+}
+
+- (BOOL)acceptsFirstMouse:(NSEvent*)event {
+    return !_clickThrough;
+}
+
+@end
+
 AppWindow::AppWindow() : nsWindow(nullptr), mtkView(nullptr) {
 }
 
@@ -46,16 +65,17 @@ bool AppWindow::create(int width, int height, const char* title) {
         [window setTitle:[NSString stringWithUTF8String:title]];
         [window setLevel:NSFloatingWindowLevel];
         [window setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                      NSWindowCollectionBehaviorFullScreenPrimary];
+                                      NSWindowCollectionBehaviorStationary];
 
         // Make titlebar transparent
         window.titlebarAppearsTransparent = YES;
         window.titleVisibility = NSWindowTitleHidden;
 
-        // Create MTKView
+        // Create MTKView (with click-through support)
         id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-        MTKView* view = [[MTKView alloc] initWithFrame:frame device:device];
+        ClickThroughMTKView* view = [[ClickThroughMTKView alloc] initWithFrame:frame device:device];
         view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        view.clickThrough = NO;
 
         [window setContentView:view];
 
@@ -91,4 +111,15 @@ void* AppWindow::getNSWindow() {
 
 void* AppWindow::getMTKView() {
     return mtkView;
+}
+
+void AppWindow::setClickThrough(bool enabled) {
+    if (mtkView) {
+        ClickThroughMTKView* view = (__bridge ClickThroughMTKView*)mtkView;
+        view.clickThrough = enabled;
+    }
+    if (nsWindow) {
+        NSWindow* window = (__bridge NSWindow*)nsWindow;
+        window.level = enabled ? NSScreenSaverWindowLevel : NSFloatingWindowLevel;
+    }
 }
