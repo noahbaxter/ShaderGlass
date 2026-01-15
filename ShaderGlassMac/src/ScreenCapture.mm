@@ -8,6 +8,8 @@
 @property (nonatomic, strong) dispatch_queue_t captureQueue;
 @property (nonatomic, assign) ScreenCapture::FrameCallback callback;
 @property (nonatomic, weak) NSWindow* excludedWindow;
+@property (nonatomic, assign) CGRect sourceRect;
+@property (nonatomic, assign) CGFloat sourceScale;
 @end
 
 @implementation ScreenCaptureImpl
@@ -16,6 +18,8 @@
     self = [super init];
     if (self) {
         _captureQueue = dispatch_queue_create("com.shaderglass.capture", DISPATCH_QUEUE_SERIAL);
+        _sourceRect = CGRectNull;
+        _sourceScale = 0;
     }
     return self;
 }
@@ -74,9 +78,19 @@
 
     // Configure the stream
     SCStreamConfiguration* config = [[SCStreamConfiguration alloc] init];
-    CGFloat scale = mainScreen.backingScaleFactor;
-    config.width = (size_t)(_display.width * scale);
-    config.height = (size_t)(_display.height * scale);
+    CGFloat scale = _sourceScale > 0 ? _sourceScale : mainScreen.backingScaleFactor;
+
+    if (!CGRectIsNull(_sourceRect) && !CGRectIsEmpty(_sourceRect)) {
+        // Capture specific area (underneath window mode)
+        config.sourceRect = _sourceRect;
+        config.width = (size_t)(_sourceRect.size.width * scale);
+        config.height = (size_t)(_sourceRect.size.height * scale);
+    } else {
+        // Capture full display
+        config.width = (size_t)(_display.width * scale);
+        config.height = (size_t)(_display.height * scale);
+    }
+
     config.pixelFormat = kCVPixelFormatType_32BGRA;
     config.showsCursor = NO;
     config.minimumFrameInterval = CMTimeMake(1, 60);
@@ -163,4 +177,10 @@ void ScreenCapture::stop() {
 void ScreenCapture::setExcludedWindow(void* nsWindow) {
     ScreenCaptureImpl* captureImpl = (__bridge ScreenCaptureImpl*)impl;
     captureImpl.excludedWindow = (__bridge NSWindow*)nsWindow;
+}
+
+void ScreenCapture::setSourceRect(CGRect rect, CGFloat scale) {
+    ScreenCaptureImpl* captureImpl = (__bridge ScreenCaptureImpl*)impl;
+    captureImpl.sourceRect = rect;
+    captureImpl.sourceScale = scale;
 }

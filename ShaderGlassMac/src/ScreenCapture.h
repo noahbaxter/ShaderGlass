@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <CoreVideo/CoreVideo.h>
+#include <CoreGraphics/CoreGraphics.h>
 
 class ScreenCapture {
 public:
@@ -14,6 +15,7 @@ public:
     void stop();
 
     void setExcludedWindow(void* nsWindow);
+    void setSourceRect(CGRect rect, CGFloat scale);
 
 private:
     void* impl;
