@@ -3,7 +3,7 @@
 #import "MetalRenderer.h"
 #import "ScreenCapture.h"
 
-static const int SHADER_COUNT = 13;
+static const int SHADER_COUNT = 63;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, assign) AppWindow* window;
@@ -19,13 +19,14 @@ static const int SHADER_COUNT = 13;
 @property (nonatomic, strong) NSArray<NSMenuItem*>* shaderItems;
 @property (nonatomic, strong) id localMonitor;
 @property (nonatomic, strong) id globalMonitor;
+@property (nonatomic, strong) id flagsMonitor;
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
-    _captureUnderneath = NO;
-    _clickThrough = NO;
+    _captureUnderneath = YES;  // Default ON
+    _clickThrough = YES;       // Default ON
     _isFullscreen = NO;
     _savedWindowFrame = NSZeroRect;
 
@@ -53,8 +54,14 @@ static const int SHADER_COUNT = 13;
     _capture = new ScreenCapture();
     _capture->setExcludedWindow(_window->getNSWindow());
 
+    // Apply default click-through
+    _window->setClickThrough(_clickThrough);
+
     [self startCapture];
     _window->show();
+
+    // Auto-enter fullscreen
+    [self toggleFullScreen:nil];
 
     // Add local key monitor for R key (randomize) and Escape (exit fullscreen)
     _localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent*(NSEvent* event) {
@@ -77,6 +84,16 @@ static const int SHADER_COUNT = 13;
             [NSApp terminate:nil];
         }
     }];
+
+    // Monitor for Option key to temporarily allow dragging when click-through is on
+    _flagsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged handler:^NSEvent*(NSEvent* event) {
+        if (self->_clickThrough) {
+            NSWindow* win = (__bridge NSWindow*)self->_window->getNSWindow();
+            BOOL optionHeld = (event.modifierFlags & NSEventModifierFlagOption) != 0;
+            win.ignoresMouseEvents = !optionHeld;
+        }
+        return event;
+    }];
 }
 
 - (void)startCapture {
@@ -86,16 +103,21 @@ static const int SHADER_COUNT = 13;
     NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
 
     if (_captureUnderneath) {
-        NSRect frame = nsWindow.frame;
+        // Use content view frame (excludes titlebar) in screen coordinates
+        NSView* contentView = nsWindow.contentView;
+        NSRect contentFrame = [contentView convertRect:contentView.bounds toView:nil];
+        NSRect contentScreenFrame = [nsWindow convertRectToScreen:contentFrame];
+
         NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
         CGFloat scale = screen.backingScaleFactor;
-
         NSRect screenFrame = screen.frame;
+
+        // Convert from bottom-left origin (NSWindow) to top-left origin (ScreenCaptureKit)
         CGRect captureRect = CGRectMake(
-            frame.origin.x - screenFrame.origin.x,
-            screenFrame.size.height - frame.origin.y - frame.size.height + screenFrame.origin.y,
-            frame.size.width,
-            frame.size.height
+            contentScreenFrame.origin.x - screenFrame.origin.x,
+            screenFrame.size.height - contentScreenFrame.origin.y - contentScreenFrame.size.height + screenFrame.origin.y,
+            contentScreenFrame.size.width,
+            contentScreenFrame.size.height
         );
 
         _capture->setSourceRect(captureRect, scale);
@@ -114,6 +136,9 @@ static const int SHADER_COUNT = 13;
     }
     if (_globalMonitor) {
         [NSEvent removeMonitor:_globalMonitor];
+    }
+    if (_flagsMonitor) {
+        [NSEvent removeMonitor:_flagsMonitor];
     }
     if (_capture) {
         _capture->stop();
@@ -257,7 +282,7 @@ int main(int argc, const char* argv[]) {
         NSMenuItem* fullscreenItem = [[NSMenuItem alloc] initWithTitle:@"Enter Full Screen"
                                                                 action:@selector(toggleFullScreen:)
                                                          keyEquivalent:@"f"];
-        fullscreenItem.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
+        fullscreenItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
         fullscreenItem.target = delegate;
         delegate.fullscreenItem = fullscreenItem;
         [viewMenu addItem:fullscreenItem];
@@ -269,6 +294,7 @@ int main(int argc, const char* argv[]) {
                                                                 keyEquivalent:@"u"];
         captureUnderneathItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
         captureUnderneathItem.target = delegate;
+        captureUnderneathItem.state = NSControlStateValueOn;  // Default ON
         delegate.captureUnderneathItem = captureUnderneathItem;
         [viewMenu addItem:captureUnderneathItem];
 
@@ -277,6 +303,7 @@ int main(int argc, const char* argv[]) {
                                                            keyEquivalent:@"l"];
         clickThroughItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
         clickThroughItem.target = delegate;
+        clickThroughItem.state = NSControlStateValueOn;  // Default ON
         delegate.clickThroughItem = clickThroughItem;
         [viewMenu addItem:clickThroughItem];
 
@@ -288,19 +315,69 @@ int main(int argc, const char* argv[]) {
         NSMenu* shaderMenu = [[NSMenu alloc] initWithTitle:@"Shader"];
 
         NSArray* shaderNames = @[
-            @"None (Passthrough)",
-            @"Scanlines",
-            @"CRT",
-            @"LCD",
-            @"VHS",
-            @"Gameboy",
-            @"Phosphor Glow",
-            @"NTSC",
-            @"ASCII",
-            @"Matrix",
-            @"Thermal",
-            @"Pixelate",
-            @"Aperture Grille"
+            @"None (Passthrough)",   // 0
+            @"Scanlines",            // 1
+            @"CRT",                  // 2
+            @"LCD",                  // 3
+            @"VHS",                  // 4
+            @"Gameboy",              // 5
+            @"Phosphor Glow",        // 6
+            @"NTSC",                 // 7
+            @"ASCII",                // 8
+            @"Matrix Rain",          // 9
+            @"Thermal",              // 10
+            @"Pixelate",             // 11
+            @"Aperture Grille",      // 12
+            @"Chromatic Aberration", // 13
+            @"Glitch",               // 14
+            @"Old Film",             // 15
+            @"Underwater",           // 16
+            @"Heat Haze",            // 17
+            @"Drunk",                // 18
+            @"Hologram",             // 19
+            @"X-Ray",                // 20
+            @"Night Vision",         // 21
+            @"Surveillance",         // 22
+            @"VCR Tracking",         // 23
+            @"Broken TV",            // 24
+            @"Static",               // 25
+            @"Rainbow Shift",        // 26
+            @"Kaleidoscope",         // 27
+            @"Halftone",             // 28
+            @"Sketch",               // 29
+            @"Emboss",               // 30
+            @"Edge Detect",          // 31
+            @"Neon Glow",            // 32
+            @"Cyberpunk",            // 33
+            @"Vaporwave",            // 34
+            @"Ordered Dither",       // 35
+            @"CGA 4-Color",          // 36
+            @"Amber Monitor",        // 37
+            @"Green Monitor",        // 38
+            @"Newspaper",            // 39
+            @"Blueprint",            // 40
+            @"Dot Matrix",           // 41
+            @"Posterize",            // 42
+            @"Color Separation",     // 43
+            @"Sin Wave",             // 44
+            @"Fisheye",              // 45
+            @"Twirl",                // 46
+            @"Bulge",                // 47
+            @"Shockwave",            // 48
+            @"Heartbeat",            // 49
+            @"Cross-hatch",          // 50
+            @"Pointillism",          // 51
+            @"Voronoi",              // 52
+            @"Rain on Glass",        // 53
+            @"Frosted Glass",        // 54
+            @"Tilt Shift",           // 55
+            @"Mirror",               // 56
+            @"Split Glitch",         // 57
+            @"Datamosh",             // 58
+            @"Bit Crush",            // 59
+            @"Invert",               // 60
+            @"Sepia",                // 61
+            @"High Contrast"         // 62
         ];
         NSMutableArray* shaderItems = [NSMutableArray array];
 

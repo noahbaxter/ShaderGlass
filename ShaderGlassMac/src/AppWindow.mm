@@ -114,12 +114,9 @@ void* AppWindow::getMTKView() {
 }
 
 void AppWindow::setClickThrough(bool enabled) {
-    if (mtkView) {
-        ClickThroughMTKView* view = (__bridge ClickThroughMTKView*)mtkView;
-        view.clickThrough = enabled;
-    }
     if (nsWindow) {
         NSWindow* window = (__bridge NSWindow*)nsWindow;
+        window.ignoresMouseEvents = enabled;
         window.level = enabled ? NSScreenSaverWindowLevel : NSFloatingWindowLevel;
     }
 }
