@@ -46,7 +46,7 @@ bool AppWindow::create(int width, int height, const char* title) {
         [window setTitle:[NSString stringWithUTF8String:title]];
         [window setLevel:NSFloatingWindowLevel];
         [window setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                      NSWindowCollectionBehaviorFullScreenAuxiliary];
+                                      NSWindowCollectionBehaviorFullScreenPrimary];
 
         // Make titlebar transparent
         window.titlebarAppearsTransparent = YES;

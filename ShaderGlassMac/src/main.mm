@@ -8,13 +8,17 @@
 @property (nonatomic, assign) MetalRenderer* renderer;
 @property (nonatomic, assign) ScreenCapture* capture;
 @property (nonatomic, assign) BOOL captureUnderneath;
+@property (nonatomic, assign) BOOL clickThrough;
 @property (nonatomic, strong) NSMenuItem* captureUnderneathItem;
+@property (nonatomic, strong) NSMenuItem* clickThroughItem;
+@property (nonatomic, strong) NSArray<NSMenuItem*>* shaderItems;
 @end
 
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
     _captureUnderneath = NO;
+    _clickThrough = NO;
 
     // Create window
     _window = new AppWindow();
@@ -105,6 +109,32 @@
     [self startCapture];
 }
 
+- (void)toggleClickThrough:(id)sender {
+    _clickThrough = !_clickThrough;
+    _clickThroughItem.state = _clickThrough ? NSControlStateValueOn : NSControlStateValueOff;
+
+    NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
+    nsWindow.ignoresMouseEvents = _clickThrough;
+
+    // Change window level when click-through is on
+    if (_clickThrough) {
+        nsWindow.level = NSScreenSaverWindowLevel;
+    } else {
+        nsWindow.level = NSFloatingWindowLevel;
+    }
+}
+
+- (void)selectShader:(id)sender {
+    NSMenuItem* item = (NSMenuItem*)sender;
+    int shaderType = (int)item.tag;
+    _renderer->setShaderType(shaderType);
+
+    // Update checkmarks
+    for (NSMenuItem* shaderItem in _shaderItems) {
+        shaderItem.state = (shaderItem.tag == shaderType) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
 #pragma mark - NSWindowDelegate
 
 - (void)windowDidMove:(NSNotification*)notification {
@@ -169,7 +199,38 @@ int main(int argc, const char* argv[]) {
         delegate.captureUnderneathItem = captureUnderneathItem;
         [viewMenu addItem:captureUnderneathItem];
 
+        NSMenuItem* clickThroughItem = [[NSMenuItem alloc] initWithTitle:@"Click Through (Lock)"
+                                                                  action:@selector(toggleClickThrough:)
+                                                           keyEquivalent:@"l"];
+        clickThroughItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+        clickThroughItem.target = delegate;
+        delegate.clickThroughItem = clickThroughItem;
+        [viewMenu addItem:clickThroughItem];
+
         [viewMenuItem setSubmenu:viewMenu];
+
+        // Shader menu
+        NSMenuItem* shaderMenuItem = [[NSMenuItem alloc] init];
+        [menuBar addItem:shaderMenuItem];
+        NSMenu* shaderMenu = [[NSMenu alloc] initWithTitle:@"Shader"];
+
+        NSArray* shaderNames = @[@"None (Passthrough)", @"Scanlines", @"CRT", @"LCD", @"VHS"];
+        NSMutableArray* shaderItems = [NSMutableArray array];
+
+        for (int i = 0; i < (int)shaderNames.count; i++) {
+            NSString* keyEquiv = (i < 5) ? [NSString stringWithFormat:@"%d", i] : @"";
+            NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:shaderNames[i]
+                                                          action:@selector(selectShader:)
+                                                   keyEquivalent:keyEquiv];
+            item.tag = i;
+            item.target = delegate;
+            item.state = (i == 1) ? NSControlStateValueOn : NSControlStateValueOff; // Scanlines default
+            [shaderMenu addItem:item];
+            [shaderItems addObject:item];
+        }
+
+        delegate.shaderItems = shaderItems;
+        [shaderMenuItem setSubmenu:shaderMenu];
 
         // Window menu (for standard window controls)
         NSMenuItem* windowMenuItem = [[NSMenuItem alloc] init];

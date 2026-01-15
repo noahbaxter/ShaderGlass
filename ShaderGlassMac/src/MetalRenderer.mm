@@ -9,8 +9,9 @@ struct Vertex {
 };
 
 struct Uniforms {
+    float textureWidth;
     float textureHeight;
-    float scanlineIntensity;
+    int shaderType;
 };
 
 @interface MetalRendererImpl : NSObject <MTKViewDelegate>
@@ -29,8 +30,9 @@ struct Uniforms {
 - (instancetype)init {
     self = [super init];
     if (self) {
+        _uniforms.textureWidth = 1920.0;
         _uniforms.textureHeight = 1080.0;
-        _uniforms.scanlineIntensity = 0.15;
+        _uniforms.shaderType = 1; // Default to scanlines
     }
     return self;
 }
@@ -135,6 +137,7 @@ struct Uniforms {
 
     if (result == kCVReturnSuccess && cvTexture) {
         _sourceTexture = CVMetalTextureGetTexture(cvTexture);
+        _uniforms.textureWidth = (float)width;
         _uniforms.textureHeight = (float)height;
         CFRelease(cvTexture);
     }
@@ -144,6 +147,14 @@ struct Uniforms {
 
 - (void)resize:(CGSize)size {
     // Nothing specific needed for now
+}
+
+- (void)setShaderType:(int)type {
+    _uniforms.shaderType = type;
+}
+
+- (int)shaderType {
+    return _uniforms.shaderType;
 }
 
 #pragma mark - MTKViewDelegate
@@ -203,4 +214,14 @@ void MetalRenderer::render() {
 void MetalRenderer::resize(float width, float height) {
     MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
     [renderer resize:CGSizeMake(width, height)];
+}
+
+void MetalRenderer::setShaderType(int type) {
+    MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
+    [renderer setShaderType:type];
+}
+
+int MetalRenderer::getShaderType() {
+    MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
+    return [renderer shaderType];
 }
