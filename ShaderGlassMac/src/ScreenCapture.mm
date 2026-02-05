@@ -1,3 +1,10 @@
+/*
+ShaderGlass: shader effect overlay
+Copyright (C) 2021-2025 mausimus (mausimus.net)
+https://github.com/mausimus/ShaderGlass
+GNU General Public License v3.0
+*/
+
 #import "ScreenCapture.h"
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <Cocoa/Cocoa.h>
@@ -7,6 +14,7 @@
 @property (nonatomic, strong) SCDisplay* display;
 @property (nonatomic, strong) dispatch_queue_t captureQueue;
 @property (nonatomic, assign) ScreenCapture::FrameCallback callback;
+@property (nonatomic, assign) ScreenCapture::ErrorCallback errorCallback;
 @property (nonatomic, weak) NSWindow* excludedWindow;
 @property (nonatomic, assign) CGRect sourceRect;
 @property (nonatomic, assign) CGFloat sourceScale;
@@ -32,6 +40,11 @@
                                                  completionHandler:^(SCShareableContent* content, NSError* error) {
         if (error) {
             NSLog(@"Failed to get shareable content: %@", error);
+            if (self->_errorCallback) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self->_errorCallback();
+                });
+            }
             return;
         }
 
@@ -183,4 +196,9 @@ void ScreenCapture::setSourceRect(CGRect rect, CGFloat scale) {
     ScreenCaptureImpl* captureImpl = (__bridge ScreenCaptureImpl*)impl;
     captureImpl.sourceRect = rect;
     captureImpl.sourceScale = scale;
+}
+
+void ScreenCapture::setErrorCallback(ErrorCallback callback) {
+    ScreenCaptureImpl* captureImpl = (__bridge ScreenCaptureImpl*)impl;
+    captureImpl.errorCallback = callback;
 }

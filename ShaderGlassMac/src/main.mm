@@ -1,3 +1,10 @@
+/*
+ShaderGlass: shader effect overlay
+Copyright (C) 2021-2025 mausimus (mausimus.net)
+https://github.com/mausimus/ShaderGlass
+GNU General Public License v3.0
+*/
+
 #import <Cocoa/Cocoa.h>
 #import "AppWindow.h"
 #import "MetalRenderer.h"
@@ -5,27 +12,14 @@
 
 static const int SHADER_COUNT = 63;
 
-// Per-screen state
-@interface ScreenState : NSObject
+@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, assign) AppWindow* window;
 @property (nonatomic, assign) MetalRenderer* renderer;
 @property (nonatomic, assign) ScreenCapture* capture;
-@property (nonatomic, weak) NSScreen* screen;
-@end
-
-@implementation ScreenState
-- (void)dealloc {
-    if (_capture) { _capture->stop(); delete _capture; }
-    if (_renderer) { delete _renderer; }
-    if (_window) { delete _window; }
-}
-@end
-
-@interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
-@property (nonatomic, strong) NSMutableArray<ScreenState*>* screens;
 @property (nonatomic, assign) BOOL captureUnderneath;
 @property (nonatomic, assign) BOOL clickThrough;
 @property (nonatomic, assign) BOOL isFullscreen;
+@property (nonatomic, assign) NSRect savedWindowFrame;
 @property (nonatomic, strong) NSMenuItem* captureUnderneathItem;
 @property (nonatomic, strong) NSMenuItem* clickThroughItem;
 @property (nonatomic, strong) NSMenuItem* fullscreenItem;
@@ -41,47 +35,41 @@ static const int SHADER_COUNT = 63;
     _captureUnderneath = YES;  // Default ON
     _clickThrough = YES;       // Default ON
     _isFullscreen = NO;
-    _screens = [NSMutableArray array];
+    _savedWindowFrame = NSZeroRect;
 
-    // Create a window for each screen
-    for (NSScreen* screen in [NSScreen screens]) {
-        ScreenState* state = [[ScreenState alloc] init];
-        state.screen = screen;
-
-        // Create window
-        state.window = new AppWindow();
-        if (!state.window->create(800, 600, "ShaderGlass")) {
-            NSLog(@"Failed to create window for screen");
-            continue;
-        }
-
-        // Position on this screen
-        NSWindow* nsWindow = (__bridge NSWindow*)state.window->getNSWindow();
-        nsWindow.delegate = self;
-        [nsWindow setFrameOrigin:screen.frame.origin];
-
-        // Create renderer
-        state.renderer = new MetalRenderer();
-        if (!state.renderer->initialize(state.window->getMTKView())) {
-            NSLog(@"Failed to initialize renderer");
-            continue;
-        }
-
-        // Create screen capture
-        state.capture = new ScreenCapture();
-        state.capture->setExcludedWindow(state.window->getNSWindow());
-
-        // Apply default click-through
-        state.window->setClickThrough(_clickThrough);
-
-        [_screens addObject:state];
-        state.window->show();
+    // Create window
+    _window = new AppWindow();
+    if (!_window->create(800, 600, "ShaderGlass")) {
+        NSLog(@"Failed to create window");
+        [NSApp terminate:nil];
+        return;
     }
 
-    // Start capture for all screens
-    [self startCapture];
+    // Set window delegate for move/resize tracking
+    NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
+    nsWindow.delegate = self;
 
-    // Auto-enter fullscreen
+    // Create renderer
+    _renderer = new MetalRenderer();
+    if (!_renderer->initialize(_window->getMTKView())) {
+        NSLog(@"Failed to initialize renderer");
+        [NSApp terminate:nil];
+        return;
+    }
+
+    // Create screen capture
+    _capture = new ScreenCapture();
+    _capture->setExcludedWindow(_window->getNSWindow());
+    _capture->setErrorCallback([self]() {
+        [self showScreenRecordingDeniedAlert];
+    });
+
+    // Apply default click-through
+    _window->setClickThrough(_clickThrough);
+
+    _window->show();
+
+    // Auto-enter fullscreen (this will start capture with correct rect)
     [self toggleFullScreen:nil];
 
     // Add local key monitor for R key (randomize) and Escape (exit fullscreen)
@@ -109,50 +97,46 @@ static const int SHADER_COUNT = 63;
     // Monitor for Option key to temporarily allow dragging when click-through is on
     _flagsMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged handler:^NSEvent*(NSEvent* event) {
         if (self->_clickThrough) {
+            NSWindow* win = (__bridge NSWindow*)self->_window->getNSWindow();
             BOOL optionHeld = (event.modifierFlags & NSEventModifierFlagOption) != 0;
-            for (ScreenState* state in self->_screens) {
-                NSWindow* win = (__bridge NSWindow*)state.window->getNSWindow();
-                win.ignoresMouseEvents = !optionHeld;
-            }
+            win.ignoresMouseEvents = !optionHeld;
         }
         return event;
     }];
 }
 
 - (void)startCapture {
-    for (ScreenState* state in _screens) {
-        state.capture->stop();
+    _capture->stop();
 
-        MetalRenderer* renderer = state.renderer;
-        NSWindow* nsWindow = (__bridge NSWindow*)state.window->getNSWindow();
+    MetalRenderer* renderer = _renderer;
+    NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
 
-        if (_captureUnderneath) {
-            // Use content view frame (excludes titlebar) in screen coordinates
-            NSView* contentView = nsWindow.contentView;
-            NSRect contentFrame = [contentView convertRect:contentView.bounds toView:nil];
-            NSRect contentScreenFrame = [nsWindow convertRectToScreen:contentFrame];
+    if (_captureUnderneath) {
+        // Use content view frame (excludes titlebar) in screen coordinates
+        NSView* contentView = nsWindow.contentView;
+        NSRect contentFrame = [contentView convertRect:contentView.bounds toView:nil];
+        NSRect contentScreenFrame = [nsWindow convertRectToScreen:contentFrame];
 
-            NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
-            CGFloat scale = screen.backingScaleFactor;
-            NSRect screenFrame = screen.frame;
+        NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
+        CGFloat scale = screen.backingScaleFactor;
+        NSRect screenFrame = screen.frame;
 
-            // Convert from bottom-left origin (NSWindow) to top-left origin (ScreenCaptureKit)
-            CGRect captureRect = CGRectMake(
-                contentScreenFrame.origin.x - screenFrame.origin.x,
-                screenFrame.size.height - contentScreenFrame.origin.y - contentScreenFrame.size.height + screenFrame.origin.y,
-                contentScreenFrame.size.width,
-                contentScreenFrame.size.height
-            );
+        // Convert from bottom-left origin (NSWindow) to top-left origin (ScreenCaptureKit)
+        CGRect captureRect = CGRectMake(
+            contentScreenFrame.origin.x - screenFrame.origin.x,
+            screenFrame.size.height - contentScreenFrame.origin.y - contentScreenFrame.size.height + screenFrame.origin.y,
+            contentScreenFrame.size.width,
+            contentScreenFrame.size.height
+        );
 
-            state.capture->setSourceRect(captureRect, scale);
-        } else {
-            state.capture->setSourceRect(CGRectNull, 0);
-        }
-
-        state.capture->start([renderer](CVPixelBufferRef pixelBuffer, size_t width, size_t height) {
-            renderer->updateTexture(pixelBuffer, width, height);
-        });
+        _capture->setSourceRect(captureRect, scale);
+    } else {
+        _capture->setSourceRect(CGRectNull, 0);
     }
+
+    _capture->start([renderer](CVPixelBufferRef pixelBuffer, size_t width, size_t height) {
+        renderer->updateTexture(pixelBuffer, width, height);
+    });
 }
 
 - (void)applicationWillTerminate:(NSNotification*)notification {
@@ -165,7 +149,16 @@ static const int SHADER_COUNT = 63;
     if (_flagsMonitor) {
         [NSEvent removeMonitor:_flagsMonitor];
     }
-    [_screens removeAllObjects];
+    if (_capture) {
+        _capture->stop();
+        delete _capture;
+    }
+    if (_renderer) {
+        delete _renderer;
+    }
+    if (_window) {
+        delete _window;
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
@@ -175,49 +168,50 @@ static const int SHADER_COUNT = 63;
 #pragma mark - Menu Actions
 
 - (void)toggleFullScreen:(id)sender {
-    if (!_isFullscreen) {
-        // Go fullscreen on all screens
-        for (ScreenState* state in _screens) {
-            NSWindow* nsWindow = (__bridge NSWindow*)state.window->getNSWindow();
-            NSScreen* screen = state.screen ?: nsWindow.screen ?: [NSScreen mainScreen];
-            NSRect screenFrame = screen.frame;
+    NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
 
-            nsWindow.styleMask = NSWindowStyleMaskBorderless;
-            nsWindow.level = NSMainMenuWindowLevel + 1;
-            [nsWindow setFrame:screenFrame display:YES animate:NO];
-            [nsWindow makeKeyAndOrderFront:nil];
-        }
+    if (!_isFullscreen) {
+        // Save current frame
+        _savedWindowFrame = nsWindow.frame;
+
+        // Get screen frame (including menu bar area)
+        NSScreen* screen = nsWindow.screen ?: [NSScreen mainScreen];
+        NSRect screenFrame = screen.frame;
+
+        // Go borderless fullscreen - use floating level so menu bar/dock can appear
+        nsWindow.styleMask = NSWindowStyleMaskBorderless;
+        nsWindow.level = NSFloatingWindowLevel;
+        [nsWindow setFrame:screenFrame display:YES animate:NO];
+        [nsWindow setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                        NSWindowCollectionBehaviorStationary |
+                                        NSWindowCollectionBehaviorIgnoresCycle];
+        [nsWindow makeKeyAndOrderFront:nil];
+
         _isFullscreen = YES;
         _fullscreenItem.title = @"Exit Full Screen";
     } else {
-        // Restore windows
-        for (ScreenState* state in _screens) {
-            NSWindow* nsWindow = (__bridge NSWindow*)state.window->getNSWindow();
-            NSScreen* screen = state.screen ?: nsWindow.screen ?: [NSScreen mainScreen];
+        // Restore window
+        nsWindow.styleMask = NSWindowStyleMaskTitled |
+                             NSWindowStyleMaskClosable |
+                             NSWindowStyleMaskMiniaturizable |
+                             NSWindowStyleMaskResizable;
+        nsWindow.titlebarAppearsTransparent = YES;
+        nsWindow.titleVisibility = NSWindowTitleHidden;
+        nsWindow.level = _clickThrough ? NSScreenSaverWindowLevel : NSFloatingWindowLevel;
 
-            nsWindow.styleMask = NSWindowStyleMaskTitled |
-                                 NSWindowStyleMaskClosable |
-                                 NSWindowStyleMaskMiniaturizable |
-                                 NSWindowStyleMaskResizable;
-            nsWindow.titlebarAppearsTransparent = YES;
-            nsWindow.titleVisibility = NSWindowTitleHidden;
-            nsWindow.level = _clickThrough ? NSScreenSaverWindowLevel : NSFloatingWindowLevel;
-
-            // Center on screen at reasonable size
-            NSRect frame = NSMakeRect(
-                screen.frame.origin.x + (screen.frame.size.width - 800) / 2,
-                screen.frame.origin.y + (screen.frame.size.height - 600) / 2,
-                800, 600
-            );
-            [nsWindow setFrame:frame display:YES animate:NO];
+        if (!NSIsEmptyRect(_savedWindowFrame)) {
+            [nsWindow setFrame:_savedWindowFrame display:YES animate:NO];
         }
+
         _isFullscreen = NO;
         _fullscreenItem.title = @"Enter Full Screen";
     }
 
-    // Restart capture if in underneath mode
+    // Restart capture if in underneath mode (defer to next run loop so frame is updated)
     if (_captureUnderneath) {
-        [self startCapture];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self startCapture];
+        });
     }
 }
 
@@ -230,25 +224,19 @@ static const int SHADER_COUNT = 63;
 - (void)toggleClickThrough:(id)sender {
     _clickThrough = !_clickThrough;
     _clickThroughItem.state = _clickThrough ? NSControlStateValueOn : NSControlStateValueOff;
-    for (ScreenState* state in _screens) {
-        state.window->setClickThrough(_clickThrough);
-    }
+    _window->setClickThrough(_clickThrough);
 }
 
 - (void)selectShader:(id)sender {
     NSMenuItem* item = (NSMenuItem*)sender;
     int shaderType = (int)item.tag;
-    for (ScreenState* state in _screens) {
-        state.renderer->setShaderType(shaderType);
-    }
+    _renderer->setShaderType(shaderType);
     [self updateShaderCheckmarks:shaderType];
 }
 
 - (void)randomizeShader:(id)sender {
     int newShader = arc4random_uniform(SHADER_COUNT);
-    for (ScreenState* state in _screens) {
-        state.renderer->setShaderType(newShader);
-    }
+    _renderer->setShaderType(newShader);
     [self updateShaderCheckmarks:newShader];
 }
 
@@ -256,6 +244,40 @@ static const int SHADER_COUNT = 63;
     for (NSMenuItem* shaderItem in _shaderItems) {
         shaderItem.state = (shaderItem.tag == shaderType) ? NSControlStateValueOn : NSControlStateValueOff;
     }
+}
+
+- (void)showAbout:(id)sender {
+    NSAlert* alert = [[NSAlert alloc] init];
+    alert.messageText = @"ShaderGlass for macOS";
+    alert.informativeText = @"GPU shader effect overlay\n\n"
+        "Copyright (C) 2021-2025 mausimus (mausimus.net)\n"
+        "https://github.com/mausimus/ShaderGlass\n\n"
+        "Licensed under the GNU General Public License v3.0\n\n"
+        "macOS port uses Metal and ScreenCaptureKit.";
+    alert.alertStyle = NSAlertStyleInformational;
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"View on GitHub"];
+    NSModalResponse response = [alert runModal];
+    if (response == NSAlertSecondButtonReturn) {
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"https://github.com/mausimus/ShaderGlass"]];
+    }
+}
+
+- (void)showScreenRecordingDeniedAlert {
+    NSAlert* alert = [[NSAlert alloc] init];
+    alert.messageText = @"Screen Recording Permission Required";
+    alert.informativeText = @"ShaderGlass needs Screen Recording permission to capture desktop content.\n\n"
+        "1. Open System Settings > Privacy & Security > Screen Recording\n"
+        "2. Enable ShaderGlassMac\n"
+        "3. Restart the app";
+    alert.alertStyle = NSAlertStyleWarning;
+    [alert addButtonWithTitle:@"Open System Settings"];
+    [alert addButtonWithTitle:@"Quit"];
+    NSModalResponse response = [alert runModal];
+    if (response == NSAlertFirstButtonReturn) {
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]];
+    }
+    [NSApp terminate:nil];
 }
 
 #pragma mark - NSWindowDelegate
@@ -295,7 +317,8 @@ int main(int argc, const char* argv[]) {
         NSMenuItem* appMenuItem = [[NSMenuItem alloc] init];
         [menuBar addItem:appMenuItem];
         NSMenu* appMenu = [[NSMenu alloc] initWithTitle:@"ShaderGlass"];
-        [appMenu addItemWithTitle:@"About ShaderGlass" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+        NSMenuItem* aboutItem = [appMenu addItemWithTitle:@"About ShaderGlass" action:@selector(showAbout:) keyEquivalent:@""];
+        aboutItem.target = delegate;
         [appMenu addItem:[NSMenuItem separatorItem]];
         [appMenu addItemWithTitle:@"Quit ShaderGlass" action:@selector(terminate:) keyEquivalent:@"q"];
         [appMenuItem setSubmenu:appMenu];

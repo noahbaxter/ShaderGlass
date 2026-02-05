@@ -1,3 +1,10 @@
+/*
+ShaderGlass: shader effect overlay
+Copyright (C) 2021-2025 mausimus (mausimus.net)
+https://github.com/mausimus/ShaderGlass
+GNU General Public License v3.0
+*/
+
 #import "MetalRenderer.h"
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -31,8 +38,8 @@ struct Uniforms {
 - (instancetype)init {
     self = [super init];
     if (self) {
-        _uniforms.textureWidth = 1920.0;
-        _uniforms.textureHeight = 1080.0;
+        _uniforms.textureWidth = 0.0;
+        _uniforms.textureHeight = 0.0;
         _uniforms.shaderType = 1; // Default to scanlines
         _uniforms.time = 0.0;
     }

@@ -10,8 +10,9 @@ APP_BUNDLE="build/${APP_NAME}.app"
 APP_BINARY="${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
 # Kill existing instance if running
-pkill -x "$APP_NAME" 2>/dev/null || true
-sleep 0.3
+pkill -f "$APP_NAME" 2>/dev/null || true
+killall "$APP_NAME" 2>/dev/null || true
+sleep 0.5
 
 # Create bundle structure once (if doesn't exist)
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
