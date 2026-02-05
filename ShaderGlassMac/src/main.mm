@@ -12,6 +12,12 @@ GNU General Public License v3.0
 
 static const int SHADER_COUNT = 63;
 
+static NSString* const kShaderType = @"shaderType";
+static NSString* const kClickThrough = @"clickThrough";
+static NSString* const kCaptureUnderneath = @"captureUnderneath";
+static NSString* const kFullscreen = @"fullscreen";
+static NSString* const kWindowFrame = @"windowFrame";
+
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, assign) AppWindow* window;
 @property (nonatomic, assign) MetalRenderer* renderer;
@@ -32,8 +38,17 @@ static const int SHADER_COUNT = 63;
 @implementation AppDelegate
 
 - (void)applicationDidFinishLaunching:(NSNotification*)notification {
-    _captureUnderneath = YES;  // Default ON
-    _clickThrough = YES;       // Default ON
+    // Register defaults for first launch
+    [[NSUserDefaults standardUserDefaults] registerDefaults:@{
+        kShaderType: @1,
+        kClickThrough: @YES,
+        kCaptureUnderneath: @YES,
+        kFullscreen: @YES,
+    }];
+
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    _captureUnderneath = [defaults boolForKey:kCaptureUnderneath];
+    _clickThrough = [defaults boolForKey:kClickThrough];
     _isFullscreen = NO;
     _savedWindowFrame = NSZeroRect;
 
@@ -49,12 +64,24 @@ static const int SHADER_COUNT = 63;
     NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
     nsWindow.delegate = self;
 
+    // Restore saved window frame
+    NSString* savedFrame = [defaults stringForKey:kWindowFrame];
+    if (savedFrame) {
+        [nsWindow setFrameFromString:savedFrame];
+    }
+
     // Create renderer
     _renderer = new MetalRenderer();
     if (!_renderer->initialize(_window->getMTKView())) {
         NSLog(@"Failed to initialize renderer");
         [NSApp terminate:nil];
         return;
+    }
+
+    // Restore saved shader
+    int savedShader = (int)[defaults integerForKey:kShaderType];
+    if (savedShader >= 0 && savedShader < SHADER_COUNT) {
+        _renderer->setShaderType(savedShader);
     }
 
     // Create screen capture
@@ -64,13 +91,17 @@ static const int SHADER_COUNT = 63;
         [self showScreenRecordingDeniedAlert];
     });
 
-    // Apply default click-through
+    // Apply click-through
     _window->setClickThrough(_clickThrough);
 
     _window->show();
 
-    // Auto-enter fullscreen (this will start capture with correct rect)
-    [self toggleFullScreen:nil];
+    // Enter fullscreen if saved (or first launch default)
+    if ([defaults boolForKey:kFullscreen]) {
+        [self toggleFullScreen:nil];
+    } else {
+        [self startCapture];
+    }
 
     // Add local key monitor for R key (randomize) and Escape (exit fullscreen)
     _localMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent*(NSEvent* event) {
@@ -139,7 +170,15 @@ static const int SHADER_COUNT = 63;
     });
 }
 
+- (void)saveWindowFrame {
+    if (_window && !_isFullscreen) {
+        NSWindow* nsWindow = (__bridge NSWindow*)_window->getNSWindow();
+        [[NSUserDefaults standardUserDefaults] setObject:[nsWindow stringWithSavedFrame] forKey:kWindowFrame];
+    }
+}
+
 - (void)applicationWillTerminate:(NSNotification*)notification {
+    [self saveWindowFrame];
     if (_localMonitor) {
         [NSEvent removeMonitor:_localMonitor];
     }
@@ -189,6 +228,7 @@ static const int SHADER_COUNT = 63;
 
         _isFullscreen = YES;
         _fullscreenItem.title = @"Exit Full Screen";
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kFullscreen];
     } else {
         // Restore window
         nsWindow.styleMask = NSWindowStyleMaskTitled |
@@ -205,6 +245,7 @@ static const int SHADER_COUNT = 63;
 
         _isFullscreen = NO;
         _fullscreenItem.title = @"Enter Full Screen";
+        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:kFullscreen];
     }
 
     // Restart capture if in underneath mode (defer to next run loop so frame is updated)
@@ -218,12 +259,14 @@ static const int SHADER_COUNT = 63;
 - (void)toggleCaptureUnderneath:(id)sender {
     _captureUnderneath = !_captureUnderneath;
     _captureUnderneathItem.state = _captureUnderneath ? NSControlStateValueOn : NSControlStateValueOff;
+    [[NSUserDefaults standardUserDefaults] setBool:_captureUnderneath forKey:kCaptureUnderneath];
     [self startCapture];
 }
 
 - (void)toggleClickThrough:(id)sender {
     _clickThrough = !_clickThrough;
     _clickThroughItem.state = _clickThrough ? NSControlStateValueOn : NSControlStateValueOff;
+    [[NSUserDefaults standardUserDefaults] setBool:_clickThrough forKey:kClickThrough];
     _window->setClickThrough(_clickThrough);
 }
 
@@ -232,12 +275,14 @@ static const int SHADER_COUNT = 63;
     int shaderType = (int)item.tag;
     _renderer->setShaderType(shaderType);
     [self updateShaderCheckmarks:shaderType];
+    [[NSUserDefaults standardUserDefaults] setInteger:shaderType forKey:kShaderType];
 }
 
 - (void)randomizeShader:(id)sender {
     int newShader = arc4random_uniform(SHADER_COUNT);
     _renderer->setShaderType(newShader);
     [self updateShaderCheckmarks:newShader];
+    [[NSUserDefaults standardUserDefaults] setInteger:newShader forKey:kShaderType];
 }
 
 - (void)updateShaderCheckmarks:(int)shaderType {
@@ -343,7 +388,7 @@ int main(int argc, const char* argv[]) {
                                                                 keyEquivalent:@"u"];
         captureUnderneathItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
         captureUnderneathItem.target = delegate;
-        captureUnderneathItem.state = NSControlStateValueOn;  // Default ON
+        captureUnderneathItem.state = delegate.captureUnderneath ? NSControlStateValueOn : NSControlStateValueOff;
         delegate.captureUnderneathItem = captureUnderneathItem;
         [viewMenu addItem:captureUnderneathItem];
 
@@ -352,7 +397,7 @@ int main(int argc, const char* argv[]) {
                                                            keyEquivalent:@"l"];
         clickThroughItem.keyEquivalentModifierMask = NSEventModifierFlagCommand;
         clickThroughItem.target = delegate;
-        clickThroughItem.state = NSControlStateValueOn;  // Default ON
+        clickThroughItem.state = delegate.clickThrough ? NSControlStateValueOn : NSControlStateValueOff;
         delegate.clickThroughItem = clickThroughItem;
         [viewMenu addItem:clickThroughItem];
 
@@ -439,7 +484,8 @@ int main(int argc, const char* argv[]) {
                                                    keyEquivalent:keyEquiv];
             item.tag = i;
             item.target = delegate;
-            item.state = (i == 1) ? NSControlStateValueOn : NSControlStateValueOff;
+            int savedShaderType = (int)[[NSUserDefaults standardUserDefaults] integerForKey:kShaderType];
+            item.state = (i == savedShaderType) ? NSControlStateValueOn : NSControlStateValueOff;
             [shaderMenu addItem:item];
             [shaderItems addObject:item];
         }
