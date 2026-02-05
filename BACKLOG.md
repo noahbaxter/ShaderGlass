@@ -17,9 +17,9 @@ Tracking all work needed before submitting PR to upstream (issue #144).
 
 ## P2 — Feature Work
 
-- [ ] Settings persistence (UserDefaults: shader, window pos/size, toggles, fullscreen)
-- [ ] Shader parameters — expose adjustable uniforms per shader via menu/panel
-- [ ] More shaders — expand beyond 63, target 100+ for compelling PR
+- [x] Settings persistence (UserDefaults: shader, window pos/size, toggles, fullscreen)
+- [x] Shader parameters — expose adjustable uniforms per shader via menu/panel
+- [x] More shaders — 101 total (was 63), covering handheld LCD, artistic, CRT variants, etc.
 
 ## P3 — Polish
 
