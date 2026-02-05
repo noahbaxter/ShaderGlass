@@ -20,6 +20,11 @@ struct Uniforms {
     float textureHeight;
     int shaderType;
     float time;
+    float paramIntensity;
+    float paramCurvature;
+    float paramScanline;
+    float paramBlur;
+    float paramColorBleed;
 };
 
 @interface MetalRendererImpl : NSObject <MTKViewDelegate>
@@ -40,8 +45,13 @@ struct Uniforms {
     if (self) {
         _uniforms.textureWidth = 0.0;
         _uniforms.textureHeight = 0.0;
-        _uniforms.shaderType = 1; // Default to scanlines
+        _uniforms.shaderType = 1;
         _uniforms.time = 0.0;
+        _uniforms.paramIntensity = 0.5;
+        _uniforms.paramCurvature = 0.5;
+        _uniforms.paramScanline = 0.5;
+        _uniforms.paramBlur = 0.5;
+        _uniforms.paramColorBleed = 0.5;
     }
     return self;
 }
@@ -166,6 +176,27 @@ struct Uniforms {
     return _uniforms.shaderType;
 }
 
+- (void)setParam:(int)index value:(float)value {
+    switch (index) {
+        case 0: _uniforms.paramIntensity = value; break;
+        case 1: _uniforms.paramCurvature = value; break;
+        case 2: _uniforms.paramScanline = value; break;
+        case 3: _uniforms.paramBlur = value; break;
+        case 4: _uniforms.paramColorBleed = value; break;
+    }
+}
+
+- (float)getParam:(int)index {
+    switch (index) {
+        case 0: return _uniforms.paramIntensity;
+        case 1: return _uniforms.paramCurvature;
+        case 2: return _uniforms.paramScanline;
+        case 3: return _uniforms.paramBlur;
+        case 4: return _uniforms.paramColorBleed;
+        default: return 0.0;
+    }
+}
+
 #pragma mark - MTKViewDelegate
 
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {
@@ -236,4 +267,14 @@ void MetalRenderer::setShaderType(int type) {
 int MetalRenderer::getShaderType() {
     MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
     return [renderer shaderType];
+}
+
+void MetalRenderer::setParam(int index, float value) {
+    MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
+    [renderer setParam:index value:value];
+}
+
+float MetalRenderer::getParam(int index) {
+    MetalRendererImpl* renderer = (__bridge MetalRendererImpl*)impl;
+    return [renderer getParam:index];
 }

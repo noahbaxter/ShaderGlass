@@ -18,6 +18,14 @@ static NSString* const kCaptureUnderneath = @"captureUnderneath";
 static NSString* const kFullscreen = @"fullscreen";
 static NSString* const kWindowFrame = @"windowFrame";
 
+static const int PARAM_COUNT = 5;
+static NSString* const kParamNames[] = {
+    @"Intensity", @"Curvature", @"Scanline Weight", @"Blur/Glow", @"Color Bleed"
+};
+static NSString* const kParamKeys[] = {
+    @"paramIntensity", @"paramCurvature", @"paramScanline", @"paramBlur", @"paramColorBleed"
+};
+
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property (nonatomic, assign) AppWindow* window;
 @property (nonatomic, assign) MetalRenderer* renderer;
@@ -30,6 +38,7 @@ static NSString* const kWindowFrame = @"windowFrame";
 @property (nonatomic, strong) NSMenuItem* clickThroughItem;
 @property (nonatomic, strong) NSMenuItem* fullscreenItem;
 @property (nonatomic, strong) NSArray<NSMenuItem*>* shaderItems;
+@property (nonatomic, strong) NSArray<NSMenuItem*>* paramItems;
 @property (nonatomic, strong) id localMonitor;
 @property (nonatomic, strong) id globalMonitor;
 @property (nonatomic, strong) id flagsMonitor;
@@ -44,6 +53,11 @@ static NSString* const kWindowFrame = @"windowFrame";
         kClickThrough: @YES,
         kCaptureUnderneath: @YES,
         kFullscreen: @YES,
+        @"paramIntensity": @0.5,
+        @"paramCurvature": @0.5,
+        @"paramScanline": @0.5,
+        @"paramBlur": @0.5,
+        @"paramColorBleed": @0.5,
     }];
 
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
@@ -82,6 +96,14 @@ static NSString* const kWindowFrame = @"windowFrame";
     int savedShader = (int)[defaults integerForKey:kShaderType];
     if (savedShader >= 0 && savedShader < SHADER_COUNT) {
         _renderer->setShaderType(savedShader);
+    }
+
+    // Restore saved parameters
+    for (int i = 0; i < PARAM_COUNT; i++) {
+        id saved = [defaults objectForKey:kParamKeys[i]];
+        if (saved) {
+            _renderer->setParam(i, [saved floatValue]);
+        }
     }
 
     // Create screen capture
@@ -288,6 +310,44 @@ static NSString* const kWindowFrame = @"windowFrame";
 - (void)updateShaderCheckmarks:(int)shaderType {
     for (NSMenuItem* shaderItem in _shaderItems) {
         shaderItem.state = (shaderItem.tag == shaderType) ? NSControlStateValueOn : NSControlStateValueOff;
+    }
+}
+
+- (void)increaseParam:(id)sender {
+    int idx = (int)((NSMenuItem*)sender).tag;
+    float val = _renderer->getParam(idx);
+    val = fmin(val + 0.1, 1.0);
+    _renderer->setParam(idx, val);
+    [[NSUserDefaults standardUserDefaults] setFloat:val forKey:kParamKeys[idx]];
+    [self updateParamTitles];
+}
+
+- (void)decreaseParam:(id)sender {
+    int idx = (int)((NSMenuItem*)sender).tag;
+    float val = _renderer->getParam(idx);
+    val = fmax(val - 0.1, 0.0);
+    _renderer->setParam(idx, val);
+    [[NSUserDefaults standardUserDefaults] setFloat:val forKey:kParamKeys[idx]];
+    [self updateParamTitles];
+}
+
+- (void)resetParams:(id)sender {
+    for (int i = 0; i < PARAM_COUNT; i++) {
+        _renderer->setParam(i, 0.5);
+        [[NSUserDefaults standardUserDefaults] setFloat:0.5 forKey:kParamKeys[i]];
+    }
+    [self updateParamTitles];
+}
+
+- (void)updateParamTitles {
+    for (int i = 0; i < (int)_paramItems.count; i++) {
+        NSMenuItem* item = _paramItems[i];
+        NSMenu* sub = item.submenu;
+        float val = _renderer->getParam(i);
+        item.title = [NSString stringWithFormat:@"%@: %.0f%%", kParamNames[i], val * 100.0];
+        // Update +/- enabled state
+        [[sub itemAtIndex:0] setEnabled:val < 0.99];
+        [[sub itemAtIndex:1] setEnabled:val > 0.01];
     }
 }
 
@@ -501,6 +561,43 @@ int main(int argc, const char* argv[]) {
 
         delegate.shaderItems = shaderItems;
         [shaderMenuItem setSubmenu:shaderMenu];
+
+        // Parameters menu
+        NSMenuItem* paramMenuItem = [[NSMenuItem alloc] init];
+        [menuBar addItem:paramMenuItem];
+        NSMenu* paramMenu = [[NSMenu alloc] initWithTitle:@"Parameters"];
+        NSMutableArray* paramItems = [NSMutableArray array];
+
+        for (int i = 0; i < PARAM_COUNT; i++) {
+            float val = delegate.renderer->getParam(i);
+            NSString* title = [NSString stringWithFormat:@"%@: %.0f%%", kParamNames[i], val * 100.0];
+            NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:nil keyEquivalent:@""];
+            NSMenu* sub = [[NSMenu alloc] initWithTitle:kParamNames[i]];
+
+            NSMenuItem* incItem = [[NSMenuItem alloc] initWithTitle:@"Increase (+10%)" action:@selector(increaseParam:) keyEquivalent:@""];
+            incItem.tag = i;
+            incItem.target = delegate;
+            [sub addItem:incItem];
+
+            NSMenuItem* decItem = [[NSMenuItem alloc] initWithTitle:@"Decrease (-10%)" action:@selector(decreaseParam:) keyEquivalent:@""];
+            decItem.tag = i;
+            decItem.target = delegate;
+            [sub addItem:decItem];
+
+            [item setSubmenu:sub];
+            [paramMenu addItem:item];
+            [paramItems addObject:item];
+        }
+
+        [paramMenu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem* resetItem = [[NSMenuItem alloc] initWithTitle:@"Reset All to 50%"
+                                                           action:@selector(resetParams:)
+                                                    keyEquivalent:@""];
+        resetItem.target = delegate;
+        [paramMenu addItem:resetItem];
+
+        delegate.paramItems = paramItems;
+        [paramMenuItem setSubmenu:paramMenu];
 
         // Window menu
         NSMenuItem* windowMenuItem = [[NSMenuItem alloc] init];

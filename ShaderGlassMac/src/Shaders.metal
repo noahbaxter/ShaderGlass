@@ -18,6 +18,11 @@ struct Uniforms {
     float textureHeight;
     int shaderType;
     float time;
+    float paramIntensity;   // 0-1: overall effect strength
+    float paramCurvature;   // 0-1: CRT curvature amount
+    float paramScanline;    // 0-1: scanline visibility
+    float paramBlur;        // 0-1: glow/blur amount
+    float paramColorBleed;  // 0-1: chromatic aberration
 };
 
 constant float4 quadVertices[] = {
@@ -47,18 +52,21 @@ float4 passthrough(texture2d<float> tex, sampler s, float2 uv) {
 }
 
 // 1: Simple scanlines
-float4 scanlines(texture2d<float> tex, sampler s, float2 uv, float height) {
+float4 scanlines(texture2d<float> tex, sampler s, float2 uv, float height, float scanWeight) {
     float4 color = tex.sample(s, uv);
     float scanline = sin(uv.y * height * 3.14159265) * 0.5 + 0.5;
-    color.rgb *= mix(0.85, 1.0, scanline);
+    float depth = mix(0.85, 1.0, 1.0 - scanWeight * 0.3);
+    color.rgb *= mix(depth, 1.0, scanline);
     return color;
 }
 
 // 2: CRT with curvature and scanlines
-float4 crt(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+float4 crt(texture2d<float> tex, sampler s, float2 uv, float2 resolution,
+           float curvature, float scanWeight, float colorBleed) {
     float2 center = uv - 0.5;
     float dist = dot(center, center);
-    float2 curved = uv + center * dist * 0.1;
+    float curveAmount = curvature * 0.2;
+    float2 curved = uv + center * dist * curveAmount;
 
     if (curved.x < 0.0 || curved.x > 1.0 || curved.y < 0.0 || curved.y > 1.0) {
         return float4(0, 0, 0, 1);
@@ -66,10 +74,11 @@ float4 crt(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
 
     float4 color = tex.sample(s, curved);
     float scanline = sin(curved.y * resolution.y * 3.14159265) * 0.5 + 0.5;
-    color.rgb *= mix(0.75, 1.0, scanline);
+    float scanDepth = mix(0.75, 1.0, 1.0 - scanWeight * 0.5);
+    color.rgb *= mix(scanDepth, 1.0, scanline);
     float vignette = 1.0 - dist * 0.5;
     color.rgb *= vignette;
-    float2 offset = center * 0.002;
+    float2 offset = center * colorBleed * 0.004;
     color.r = tex.sample(s, curved + offset).r;
     color.b = tex.sample(s, curved - offset).b;
     return color;
@@ -139,7 +148,8 @@ float4 gameboy(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
 }
 
 // 6: Phosphor glow (bloom)
-float4 phosphor(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+float4 phosphor(texture2d<float> tex, sampler s, float2 uv, float2 resolution,
+                float scanWeight, float blurAmount) {
     float4 color = tex.sample(s, uv);
 
     // Simple box blur for glow
@@ -154,10 +164,11 @@ float4 phosphor(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
 
     // Scanlines
     float scanline = sin(uv.y * resolution.y * 3.14159265) * 0.5 + 0.5;
-    color.rgb *= mix(0.7, 1.0, scanline);
+    float scanDepth = mix(0.7, 1.0, 1.0 - scanWeight * 0.6);
+    color.rgb *= mix(scanDepth, 1.0, scanline);
 
     // Add glow
-    color.rgb += glow.rgb * 0.3;
+    color.rgb += glow.rgb * blurAmount * 0.6;
     color.rgb = min(color.rgb, float3(1.0));
 
     return color;
@@ -299,10 +310,10 @@ float rand(float2 co) {
 }
 
 // 13: Chromatic Aberration (heavy RGB split)
-float4 chromatic(texture2d<float> tex, sampler s, float2 uv) {
+float4 chromatic(texture2d<float> tex, sampler s, float2 uv, float colorBleed) {
     float2 center = uv - 0.5;
     float dist = length(center);
-    float strength = dist * 0.04;
+    float strength = dist * colorBleed * 0.08;
     float2 dir = normalize(center + 0.0001);
     float r = tex.sample(s, uv + dir * strength).r;
     float g = tex.sample(s, uv).g;
@@ -1074,19 +1085,19 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
 
     switch (uniforms.shaderType) {
         case 0:  return passthrough(tex, s, in.texCoord);
-        case 1:  return scanlines(tex, s, in.texCoord, uniforms.textureHeight);
-        case 2:  return crt(tex, s, in.texCoord, resolution);
+        case 1:  return scanlines(tex, s, in.texCoord, uniforms.textureHeight, uniforms.paramScanline);
+        case 2:  return crt(tex, s, in.texCoord, resolution, uniforms.paramCurvature, uniforms.paramScanline, uniforms.paramColorBleed);
         case 3:  return lcd(tex, s, in.texCoord, resolution / 3.0);
         case 4:  return vhs(tex, s, in.texCoord, resolution, uniforms.time);
         case 5:  return gameboy(tex, s, in.texCoord, resolution);
-        case 6:  return phosphor(tex, s, in.texCoord, resolution);
+        case 6:  return phosphor(tex, s, in.texCoord, resolution, uniforms.paramScanline, uniforms.paramBlur);
         case 7:  return ntsc(tex, s, in.texCoord, resolution, uniforms.time);
         case 8:  return ascii(tex, s, in.texCoord, resolution);
         case 9:  return matrixRain(tex, s, in.texCoord, resolution, uniforms.time);
         case 10: return thermal(tex, s, in.texCoord);
         case 11: return pixelate(tex, s, in.texCoord, resolution);
         case 12: return aperture(tex, s, in.texCoord, resolution);
-        case 13: return chromatic(tex, s, in.texCoord);
+        case 13: return chromatic(tex, s, in.texCoord, uniforms.paramColorBleed);
         case 14: return glitch(tex, s, in.texCoord, uniforms.time);
         case 15: return oldFilm(tex, s, in.texCoord, uniforms.time);
         case 16: return underwater(tex, s, in.texCoord, uniforms.time);

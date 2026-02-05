@@ -20,6 +20,8 @@ public:
     void resize(float width, float height);
     void setShaderType(int type);
     int getShaderType();
+    void setParam(int index, float value);
+    float getParam(int index);
 
 private:
     void* impl;
