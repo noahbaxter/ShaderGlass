@@ -10,7 +10,7 @@ GNU General Public License v3.0
 #import "MetalRenderer.h"
 #import "ScreenCapture.h"
 
-static const int SHADER_COUNT = 63;
+static const int SHADER_COUNT = 101;
 
 static NSString* const kShaderType = @"shaderType";
 static NSString* const kClickThrough = @"clickThrough";
@@ -531,7 +531,45 @@ int main(int argc, const char* argv[]) {
             @"Bit Crush",            // 59
             @"Invert",               // 60
             @"Sepia",                // 61
-            @"High Contrast"         // 62
+            @"High Contrast",        // 62
+            @"GBA LCD",              // 63
+            @"SNES 16-bit",          // 64
+            @"NES 8-bit",            // 65
+            @"Sharpen",              // 66
+            @"Box Blur",             // 67
+            @"Motion Blur",          // 68
+            @"Radial Blur",          // 69
+            @"Brightness Boost",     // 70
+            @"Darken",               // 71
+            @"Warm Tint",            // 72
+            @"Cool Tint",            // 73
+            @"Vignette",             // 74
+            @"Film Grain",           // 75
+            @"Duotone",              // 76
+            @"Tritone",              // 77
+            @"Pop Art",              // 78
+            @"Ink / Threshold",      // 79
+            @"Stipple",              // 80
+            @"Hex Mosaic",           // 81
+            @"Oil Paint",            // 82
+            @"Watercolor",           // 83
+            @"Stained Glass",        // 84
+            @"Zoom Blur",            // 85
+            @"Barrel Distortion",    // 86
+            @"Pincushion",           // 87
+            @"Ripple",               // 88
+            @"Pixelate Circle",      // 89
+            @"Pixelate Diamond",     // 90
+            @"CRT Shadow Mask",      // 91
+            @"CRT Slot Mask",        // 92
+            @"Grayscale",            // 93
+            @"Solarize",            // 94
+            @"Color Rotate",         // 95
+            @"Flip Horizontal",      // 96
+            @"Flip Vertical",        // 97
+            @"Tile 2x2",             // 98
+            @"Rotate 90",            // 99
+            @"Letterbox"             // 100
         ];
         NSMutableArray* shaderItems = [NSMutableArray array];
 

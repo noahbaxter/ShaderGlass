@@ -1077,6 +1077,429 @@ float4 highContrast(texture2d<float> tex, sampler s, float2 uv) {
     return color;
 }
 
+// 63: GBA (Game Boy Advance) LCD
+float4 gba(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float4 color = tex.sample(s, uv);
+    float2 pixelCoord = uv * resolution / 3.0;
+    float2 subpixel = fract(pixelCoord);
+    float grid = smoothstep(0.0, 0.15, subpixel.x) * smoothstep(1.0, 0.85, subpixel.x) *
+                 smoothstep(0.0, 0.15, subpixel.y) * smoothstep(1.0, 0.85, subpixel.y);
+    color.rgb *= mix(0.75, 1.0, grid);
+    color.rgb = pow(color.rgb, float3(0.9)) * 1.1;
+    color.rgb *= float3(1.0, 0.98, 0.95);
+    return color;
+}
+
+// 64: SNES / 16-bit color reduction
+float4 snes(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 pixelSize = 2.0 / resolution;
+    float2 pixelUV = floor(uv / pixelSize) * pixelSize + pixelSize * 0.5;
+    float4 color = tex.sample(s, pixelUV);
+    float levels = 32.0;
+    color.rgb = floor(color.rgb * levels) / levels;
+    return color;
+}
+
+// 65: NES / 8-bit palette
+float4 nes(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 pixelSize = 3.0 / resolution;
+    float2 pixelUV = floor(uv / pixelSize) * pixelSize + pixelSize * 0.5;
+    float4 color = tex.sample(s, pixelUV);
+    float levels = 4.0;
+    color.rgb = floor(color.rgb * levels) / levels;
+    color.rgb = pow(color.rgb, float3(0.8));
+    return color;
+}
+
+// 66: Sharpen
+float4 sharpen(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 texel = 1.0 / resolution;
+    float4 center = tex.sample(s, uv) * 5.0;
+    float4 neighbors = tex.sample(s, uv + float2(texel.x, 0)) +
+                       tex.sample(s, uv - float2(texel.x, 0)) +
+                       tex.sample(s, uv + float2(0, texel.y)) +
+                       tex.sample(s, uv - float2(0, texel.y));
+    float4 color = center - neighbors;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return float4(color.rgb, 1.0);
+}
+
+// 67: Box Blur
+float4 boxBlur(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 texel = 1.0 / resolution;
+    float4 color = float4(0);
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            color += tex.sample(s, uv + float2(x, y) * texel);
+        }
+    }
+    return color / 25.0;
+}
+
+// 68: Motion Blur (horizontal)
+float4 motionBlur(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 texel = 1.0 / resolution;
+    float4 color = float4(0);
+    for (int i = -4; i <= 4; i++) {
+        float weight = 1.0 - abs(float(i)) / 5.0;
+        color += tex.sample(s, uv + float2(i, 0) * texel * 3.0) * weight;
+    }
+    return color / 5.4;
+}
+
+// 69: Radial Blur
+float4 radialBlur(texture2d<float> tex, sampler s, float2 uv) {
+    float2 center = uv - 0.5;
+    float4 color = float4(0);
+    for (int i = 0; i < 8; i++) {
+        float scale = 1.0 - float(i) * 0.01;
+        color += tex.sample(s, center * scale + 0.5);
+    }
+    return color / 8.0;
+}
+
+// 70: Brightness Boost
+float4 brightnessBoost(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.rgb = pow(color.rgb, float3(0.7));
+    return color;
+}
+
+// 71: Darken
+float4 darken(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.rgb = pow(color.rgb, float3(1.5));
+    return color;
+}
+
+// 72: Warm Tint
+float4 warmTint(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.r *= 1.1;
+    color.g *= 1.0;
+    color.b *= 0.85;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return color;
+}
+
+// 73: Cool Tint
+float4 coolTint(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.r *= 0.85;
+    color.g *= 0.95;
+    color.b *= 1.15;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return color;
+}
+
+// 74: Vignette
+float4 vignette(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float2 center = uv - 0.5;
+    float dist = length(center);
+    float vig = 1.0 - smoothstep(0.3, 0.8, dist);
+    color.rgb *= vig;
+    return color;
+}
+
+// 75: Film Grain
+float4 filmGrain(texture2d<float> tex, sampler s, float2 uv, float time) {
+    float4 color = tex.sample(s, uv);
+    float grain = rand(uv + fract(time * 60.0)) * 0.1 - 0.05;
+    color.rgb += grain;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return color;
+}
+
+// 76: Duotone (two-color)
+float4 duotone(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    float3 dark = float3(0.1, 0.0, 0.3);
+    float3 light = float3(1.0, 0.8, 0.2);
+    return float4(mix(dark, light, gray), 1.0);
+}
+
+// 77: Tritone
+float4 tritone(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    float3 shadows = float3(0.0, 0.1, 0.2);
+    float3 mids = float3(0.8, 0.2, 0.1);
+    float3 highlights = float3(1.0, 0.9, 0.7);
+    float3 result;
+    if (gray < 0.5) {
+        result = mix(shadows, mids, gray * 2.0);
+    } else {
+        result = mix(mids, highlights, (gray - 0.5) * 2.0);
+    }
+    return float4(result, 1.0);
+}
+
+// 78: Pop Art (saturated posterize)
+float4 popArt(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.rgb = pow(color.rgb, float3(0.8));
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    color.rgb = mix(float3(gray), color.rgb, 2.5);
+    color.rgb = floor(color.rgb * 4.0) / 3.0;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return color;
+}
+
+// 79: Ink / Threshold
+float4 ink(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    float bw = step(0.5, gray);
+    return float4(float3(bw), 1.0);
+}
+
+// 80: Stipple
+float4 stipple(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float4 color = tex.sample(s, uv);
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    float noise = rand(floor(uv * resolution / 2.0));
+    float stip = step(noise, gray);
+    return float4(float3(stip), 1.0);
+}
+
+// 81: Mosaic (hex tiles)
+float4 hexMosaic(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float size = 12.0;
+    float2 scaled = uv * resolution / size;
+    float2 hexPos;
+    hexPos.x = scaled.x;
+    hexPos.y = scaled.y + fmod(floor(scaled.x), 2.0) * 0.5;
+    float2 center = (floor(hexPos) + 0.5) * size / resolution;
+    return tex.sample(s, center);
+}
+
+// 82: Oil Paint
+float4 oilPaint(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 texel = 1.0 / resolution;
+    float4 color = float4(0);
+    float totalWeight = 0.0;
+    for (int x = -2; x <= 2; x++) {
+        for (int y = -2; y <= 2; y++) {
+            float4 sample_color = tex.sample(s, uv + float2(x, y) * texel * 2.0);
+            float lum = dot(sample_color.rgb, float3(0.333));
+            float weight = 1.0 / (1.0 + abs(lum - dot(tex.sample(s, uv).rgb, float3(0.333))) * 10.0);
+            color += sample_color * weight;
+            totalWeight += weight;
+        }
+    }
+    color /= totalWeight;
+    color.rgb = floor(color.rgb * 10.0) / 10.0;
+    return float4(color.rgb, 1.0);
+}
+
+// 83: Watercolor
+float4 watercolor(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float2 texel = 1.0 / resolution;
+    float2 wobble = float2(
+        rand(floor(uv * 50.0)) - 0.5,
+        rand(floor(uv * 50.0) + 100.0) - 0.5
+    ) * texel * 6.0;
+    float4 color = float4(0);
+    for (int i = 0; i < 5; i++) {
+        float2 offset = float2(rand(uv + float(i)), rand(uv + float(i) + 50.0)) * texel * 4.0;
+        color += tex.sample(s, uv + wobble + offset);
+    }
+    color /= 5.0;
+    color.rgb = mix(color.rgb, float3(1.0), 0.1);
+    color.rgb = pow(color.rgb, float3(0.9));
+    return color;
+}
+
+// 84: Stained Glass
+float4 stainedGlass(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float cellSize = 25.0;
+    float2 scaled = uv * resolution / cellSize;
+    float2 cell = floor(scaled);
+    float minDist = 10.0;
+    float2 closestPoint;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            float2 neighbor = cell + float2(x, y);
+            float2 point = neighbor + float2(rand(neighbor), rand(neighbor + 100.0));
+            float dist = length(scaled - point);
+            if (dist < minDist) {
+                minDist = dist;
+                closestPoint = point;
+            }
+        }
+    }
+    float2 sampleUV = closestPoint * cellSize / resolution;
+    float4 color = tex.sample(s, sampleUV);
+    color.rgb = pow(color.rgb, float3(0.8)) * 1.2;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    float edge = smoothstep(0.02, 0.08, minDist);
+    float lead = 1.0 - step(edge, 0.1) * 0.7;
+    return float4(color.rgb * lead, 1.0);
+}
+
+// 85: Zoom Blur
+float4 zoomBlur(texture2d<float> tex, sampler s, float2 uv) {
+    float2 center = uv - 0.5;
+    float4 color = float4(0);
+    for (int i = 0; i < 10; i++) {
+        float scale = 1.0 + float(i) * 0.005;
+        color += tex.sample(s, center * scale + 0.5);
+    }
+    return color / 10.0;
+}
+
+// 86: Barrel Distortion
+float4 barrel(texture2d<float> tex, sampler s, float2 uv) {
+    float2 center = uv - 0.5;
+    float dist = dot(center, center);
+    float2 distorted = uv + center * dist * -0.3;
+    if (distorted.x < 0.0 || distorted.x > 1.0 || distorted.y < 0.0 || distorted.y > 1.0) {
+        return float4(0, 0, 0, 1);
+    }
+    return tex.sample(s, distorted);
+}
+
+// 87: Pincushion Distortion
+float4 pincushion(texture2d<float> tex, sampler s, float2 uv) {
+    float2 center = uv - 0.5;
+    float dist = dot(center, center);
+    float2 distorted = uv + center * dist * 0.3;
+    if (distorted.x < 0.0 || distorted.x > 1.0 || distorted.y < 0.0 || distorted.y > 1.0) {
+        return float4(0, 0, 0, 1);
+    }
+    return tex.sample(s, distorted);
+}
+
+// 88: Ripple
+float4 ripple(texture2d<float> tex, sampler s, float2 uv, float time) {
+    float2 center = uv - 0.5;
+    float dist = length(center);
+    float wave = sin(dist * 30.0 - time * 5.0) * 0.01 / (dist + 0.1);
+    float2 offset = normalize(center + 0.0001) * wave;
+    return tex.sample(s, uv + offset);
+}
+
+// 89: Pixelate Circle
+float4 pixelateCircle(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float dotSize = 8.0;
+    float2 pixelCoord = uv * resolution / dotSize;
+    float2 center = (floor(pixelCoord) + 0.5) * dotSize / resolution;
+    float4 color = tex.sample(s, center);
+    float2 local = fract(pixelCoord) - 0.5;
+    float dist = length(local);
+    float mask = smoothstep(0.5, 0.4, dist);
+    return float4(color.rgb * mask + float3(0.1) * (1.0 - mask), 1.0);
+}
+
+// 90: Pixelate Diamond
+float4 pixelateDiamond(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float size = 8.0;
+    float2 pixelCoord = uv * resolution / size;
+    float2 center = (floor(pixelCoord) + 0.5) * size / resolution;
+    float4 color = tex.sample(s, center);
+    float2 local = abs(fract(pixelCoord) - 0.5);
+    float diamond = local.x + local.y;
+    float mask = smoothstep(0.5, 0.4, diamond);
+    return float4(color.rgb * mask + float3(0.05) * (1.0 - mask), 1.0);
+}
+
+// 91: CRT Shadow Mask
+float4 shadowMask(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float4 color = tex.sample(s, uv);
+    float2 pixelCoord = uv * resolution;
+    int xMod = int(fmod(floor(pixelCoord.x), 3.0));
+    int yMod = int(fmod(floor(pixelCoord.y), 3.0));
+    float3 mask = float3(0.6);
+    if (xMod == 0 && yMod == 0) mask.r = 1.0;
+    else if (xMod == 1 && yMod == 1) mask.g = 1.0;
+    else if (xMod == 2 && yMod == 2) mask.b = 1.0;
+    color.rgb *= mask;
+    float scanline = sin(uv.y * resolution.y * 3.14159) * 0.5 + 0.5;
+    color.rgb *= mix(0.8, 1.0, scanline);
+    return color;
+}
+
+// 92: CRT Slot Mask
+float4 slotMask(texture2d<float> tex, sampler s, float2 uv, float2 resolution) {
+    float4 color = tex.sample(s, uv);
+    float2 pixelCoord = uv * resolution;
+    int col = int(fmod(floor(pixelCoord.x), 6.0));
+    float3 mask;
+    if (col < 2) mask = float3(1.0, 0.3, 0.3);
+    else if (col < 4) mask = float3(0.3, 1.0, 0.3);
+    else mask = float3(0.3, 0.3, 1.0);
+    float slot = step(0.5, fmod(floor(pixelCoord.y / 2.0), 2.0));
+    mask = mix(mask, float3(0.5), slot * 0.3);
+    color.rgb *= mask;
+    color.rgb *= 1.3;
+    color.rgb = min(color.rgb, float3(1.0));
+    return color;
+}
+
+// 93: Grayscale
+float4 grayscale(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float gray = dot(color.rgb, float3(0.299, 0.587, 0.114));
+    return float4(float3(gray), 1.0);
+}
+
+// 94: Solarize
+float4 solarize(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    color.rgb = mix(color.rgb, 1.0 - color.rgb, step(0.5, color.rgb));
+    return color;
+}
+
+// 95: Color Rotate (hue shift)
+float4 colorRotate(texture2d<float> tex, sampler s, float2 uv, float time) {
+    float4 color = tex.sample(s, uv);
+    float angle = time * 0.5;
+    float cosA = cos(angle);
+    float sinA = sin(angle);
+    float3x3 hueRot = float3x3(
+        float3(0.299 + 0.701*cosA + 0.168*sinA, 0.587 - 0.587*cosA + 0.330*sinA, 0.114 - 0.114*cosA - 0.497*sinA),
+        float3(0.299 - 0.299*cosA - 0.328*sinA, 0.587 + 0.413*cosA + 0.035*sinA, 0.114 - 0.114*cosA + 0.292*sinA),
+        float3(0.299 - 0.300*cosA + 1.250*sinA, 0.587 - 0.588*cosA - 1.050*sinA, 0.114 + 0.886*cosA - 0.203*sinA)
+    );
+    color.rgb = hueRot * color.rgb;
+    color.rgb = clamp(color.rgb, 0.0, 1.0);
+    return color;
+}
+
+// 96: Flip Horizontal
+float4 flipH(texture2d<float> tex, sampler s, float2 uv) {
+    return tex.sample(s, float2(1.0 - uv.x, uv.y));
+}
+
+// 97: Flip Vertical
+float4 flipV(texture2d<float> tex, sampler s, float2 uv) {
+    return tex.sample(s, float2(uv.x, 1.0 - uv.y));
+}
+
+// 98: Tile (2x2 repeat)
+float4 tile(texture2d<float> tex, sampler s, float2 uv) {
+    return tex.sample(s, fract(uv * 2.0));
+}
+
+// 99: Rotate 90
+float4 rotate90(texture2d<float> tex, sampler s, float2 uv) {
+    return tex.sample(s, float2(uv.y, 1.0 - uv.x));
+}
+
+// 100: Letterbox (cinematic bars)
+float4 letterbox(texture2d<float> tex, sampler s, float2 uv) {
+    float4 color = tex.sample(s, uv);
+    float bar = 0.12;
+    if (uv.y < bar || uv.y > 1.0 - bar) {
+        return float4(0, 0, 0, 1);
+    }
+    float vig = 1.0 - pow(length(uv - 0.5) * 1.2, 2.0) * 0.3;
+    color.rgb *= vig;
+    return color;
+}
+
 fragment float4 fragmentShader(VertexOut in [[stage_in]],
                                texture2d<float> tex [[texture(0)]],
                                constant Uniforms& uniforms [[buffer(0)]]) {
@@ -1147,6 +1570,44 @@ fragment float4 fragmentShader(VertexOut in [[stage_in]],
         case 60: return invert(tex, s, in.texCoord);
         case 61: return sepia(tex, s, in.texCoord);
         case 62: return highContrast(tex, s, in.texCoord);
+        case 63: return gba(tex, s, in.texCoord, resolution);
+        case 64: return snes(tex, s, in.texCoord, resolution);
+        case 65: return nes(tex, s, in.texCoord, resolution);
+        case 66: return sharpen(tex, s, in.texCoord, resolution);
+        case 67: return boxBlur(tex, s, in.texCoord, resolution);
+        case 68: return motionBlur(tex, s, in.texCoord, resolution);
+        case 69: return radialBlur(tex, s, in.texCoord);
+        case 70: return brightnessBoost(tex, s, in.texCoord);
+        case 71: return darken(tex, s, in.texCoord);
+        case 72: return warmTint(tex, s, in.texCoord);
+        case 73: return coolTint(tex, s, in.texCoord);
+        case 74: return vignette(tex, s, in.texCoord);
+        case 75: return filmGrain(tex, s, in.texCoord, uniforms.time);
+        case 76: return duotone(tex, s, in.texCoord);
+        case 77: return tritone(tex, s, in.texCoord);
+        case 78: return popArt(tex, s, in.texCoord);
+        case 79: return ink(tex, s, in.texCoord);
+        case 80: return stipple(tex, s, in.texCoord, resolution);
+        case 81: return hexMosaic(tex, s, in.texCoord, resolution);
+        case 82: return oilPaint(tex, s, in.texCoord, resolution);
+        case 83: return watercolor(tex, s, in.texCoord, resolution);
+        case 84: return stainedGlass(tex, s, in.texCoord, resolution);
+        case 85: return zoomBlur(tex, s, in.texCoord);
+        case 86: return barrel(tex, s, in.texCoord);
+        case 87: return pincushion(tex, s, in.texCoord);
+        case 88: return ripple(tex, s, in.texCoord, uniforms.time);
+        case 89: return pixelateCircle(tex, s, in.texCoord, resolution);
+        case 90: return pixelateDiamond(tex, s, in.texCoord, resolution);
+        case 91: return shadowMask(tex, s, in.texCoord, resolution);
+        case 92: return slotMask(tex, s, in.texCoord, resolution);
+        case 93: return grayscale(tex, s, in.texCoord);
+        case 94: return solarize(tex, s, in.texCoord);
+        case 95: return colorRotate(tex, s, in.texCoord, uniforms.time);
+        case 96: return flipH(tex, s, in.texCoord);
+        case 97: return flipV(tex, s, in.texCoord);
+        case 98: return tile(tex, s, in.texCoord);
+        case 99: return rotate90(tex, s, in.texCoord);
+        case 100: return letterbox(tex, s, in.texCoord);
         default: return passthrough(tex, s, in.texCoord);
     }
 }
