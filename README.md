@@ -61,10 +61,16 @@ into a new app [ShaderBeam](https://github.com/mausimus/ShaderBeam).
 
 ### Requirements
 
+#### Windows
 * __Windows 10, version 2004__ (build 19041) or __Windows 11__
   * will work on version 1903 but in limited capacity (no Desktop Glass mode)
   * Windows 11 allows the __removal of yellow border__ (see [FAQ](FAQ.md#windows-10) for tips on avoiding it on Windows 10)
 * DirectX 11-capable GPU
+
+#### macOS
+* __macOS 13 (Ventura)__ or later
+* Apple Silicon or Intel Mac with Metal support
+* Screen Recording permission (prompted on first launch)
 
 <br/>
 
@@ -137,14 +143,37 @@ See [Online Manual](https://mausimus.github.io/ShaderGlass/MANUAL.html) for opti
 
 ### Code
 
+#### Windows
+
 Built using Visual Studio 2022 using ISO C++ 20, Windows SDK 10.0.26100, Windows Capture API and DirectX 11.
 
 ShaderGlass includes a limited implementation of RetroArch shader back-end using DirectX 11.
-[ShaderGen](ShaderGen) is a command-line tool for converting Slang shaders 
+[ShaderGen](ShaderGen) is a command-line tool for converting Slang shaders
 into .h files which can be precompiled in ShaderGlass. The conversion process relies on:
 1. [glslang](https://github.com/KhronosGroup/glslang) for converting Slang/GLSL shaders to SPIR-V
 2. [SPIR-V cross-compiler](https://github.com/KhronosGroup/SPIRV-Cross) for converting those to HLSL (DX11 format)
 3. [Direct3D Shader Compiler (fxc.exe)](https://developer.microsoft.com/en-us/windows/downloads/windows-10-sdk/) for pre-compiling into bytecode
+
+#### macOS
+
+Built with Clang/Objective-C++ using Metal for GPU rendering and ScreenCaptureKit for desktop capture.
+
+```bash
+cd ShaderGlassMac
+make          # Build app bundle (build/ShaderGlassMac.app)
+make run      # Build and launch
+make clean    # Remove build artifacts
+```
+
+For development with hot-reload and persistent Screen Recording permissions:
+```bash
+cd ShaderGlassMac
+./setup-dev-cert.sh   # One-time: create persistent dev certificate
+./dev.sh              # Build and run (incremental, preserves permissions)
+./watch.sh            # Auto-rebuild on file changes (requires fswatch)
+```
+
+The macOS port includes 101 hand-written Metal shaders covering CRT, LCD, VHS, retro console, handheld, artistic, and distortion effects. Shaders are compiled to a Metal library at build time.
 
 <br/>
 
