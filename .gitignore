@@ -363,3 +363,13 @@ FodyWeavers.xsd
 
 Scripts/slang-shaders
 Scripts/temp
+
+# macOS
+.DS_Store
+*.swp
+.AppleDouble
+.LSOverride
+._*
+
+# macOS build artifacts
+ShaderGlassMac/build/
